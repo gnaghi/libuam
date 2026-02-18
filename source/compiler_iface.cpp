@@ -291,8 +291,15 @@ DekoCompiler::~DekoCompiler()
 
 bool DekoCompiler::CompileGlsl(const char* glsl)
 {
+	m_errorLog.clear();
+	glsl_frontend_reset_log();
+
 	m_glsl = glsl_program_create(glsl, m_stage);
-	if (!m_glsl) return false;
+	if (!m_glsl)
+	{
+		m_errorLog = glsl_frontend_get_log();
+		return false;
+	}
 
 	m_tgsi = glsl_program_get_tokens(m_glsl, m_tgsiNumTokens);
 	m_info.bin.source = m_tgsi;
@@ -301,14 +308,29 @@ bool DekoCompiler::CompileGlsl(const char* glsl)
 	int ret = nv50_ir_generate_code(&m_info);
 	if (ret < 0)
 	{
-		fprintf(stderr, "Error compiling program: %d\n", ret);
+		char buf[64];
+		snprintf(buf, sizeof(buf), "Error compiling program: %d\n", ret);
+		m_errorLog = glsl_frontend_get_log();
+		m_errorLog += buf;
+		fprintf(stderr, "%s", buf);
 		return false;
 	}
 
+	/* Capture frontend log (may contain warnings) */
+	m_errorLog = glsl_frontend_get_log();
+
 	if (m_info.io.fp64_rcprsq)
-		fprintf(stderr, "warning: program uses 64-bit floating point reciprocal/square root, for which only a rough approximation with 20 bits of mantissa is supported by hardware\n");
+	{
+		const char *msg = "warning: program uses 64-bit floating point reciprocal/square root, for which only a rough approximation with 20 bits of mantissa is supported by hardware\n";
+		m_errorLog += msg;
+		fprintf(stderr, "%s", msg);
+	}
 	if (m_info.io.int_divmod)
-		fprintf(stderr, "warning: program uses non-constant integer division/modulo, which is unsupported by hardware; floating point emulation with resulting loss of precision has been applied\n");
+	{
+		const char *msg = "warning: program uses non-constant integer division/modulo, which is unsupported by hardware; floating point emulation with resulting loss of precision has been applied\n";
+		m_errorLog += msg;
+		fprintf(stderr, "%s", msg);
+	}
 
 	m_data = glsl_program_get_constant_buffer(m_glsl, m_dataSize);
 	RetrieveAndPadCode();

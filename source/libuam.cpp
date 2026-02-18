@@ -41,6 +41,14 @@ uam_compiler *uam_create_compiler(DkStage stage) {
     return reinterpret_cast<uam_compiler *>(new DekoCompiler(pstage));
 }
 
+uam_compiler *uam_create_compiler_ex(DkStage stage, int opt_level) {
+    auto pstage = map_pipeline_stage(stage);
+    if (pstage == static_cast<pipeline_stage>(-1))
+        return NULL;
+
+    return reinterpret_cast<uam_compiler *>(new DekoCompiler(pstage, opt_level));
+}
+
 void uam_free_compiler(uam_compiler *compiler) {
     delete reinterpret_cast<DekoCompiler *>(compiler);
 }
@@ -55,4 +63,16 @@ size_t uam_get_code_size(const uam_compiler *compiler) {
 
 void uam_write_code(const uam_compiler *compiler, void *memory) {
     reinterpret_cast<const DekoCompiler *>(compiler)->OutputDkshToMemory(memory);
+}
+
+const char *uam_get_error_log(const uam_compiler *compiler) {
+    return reinterpret_cast<const DekoCompiler *>(compiler)->GetErrorLog();
+}
+
+int uam_get_num_gprs(const uam_compiler *compiler) {
+    return reinterpret_cast<const DekoCompiler *>(compiler)->GetNumGprs();
+}
+
+unsigned int uam_get_raw_code_size(const uam_compiler *compiler) {
+    return reinterpret_cast<const DekoCompiler *>(compiler)->GetCodeSize();
 }

@@ -1,23 +1,89 @@
-# UAM - deko3d shader compiler
+# libuam - deko3d shader compiler library
 
+libuam is a static library that compiles GLSL 4.60 shaders into DKSH (deko3d shader) binaries at runtime on the Nintendo Switch. It targets the Nvidia Tegra X1 (Maxwell GM20B) GPU.
+
+Based on [mesa](https://www.mesa3d.org/) 19.0.8's GLSL parser and TGSI infrastructure, and nouveau's nv50_ir code generation backend.
+
+## Building for Nintendo Switch
+
+### Prerequisites
+
+- [devkitPro](https://devkitpro.org/) with devkitA64
+- Python 3 with the `mako` module (`pacman -S python-mako`)
+- `bison` and `flex` (`pacman -S bison flex`)
+- `meson` and `ninja` (`pacman -S meson`)
+
+### Cross-compilation
+
+```bash
+# Configure (once)
+meson setup builddir --cross-file cross_switch.txt
+
+# Build
+meson compile -C builddir
+
+# Install to devkitPro portlibs
+DESTDIR=/opt/devkitpro/portlibs/switch meson install -C builddir
 ```
-Usage: uam [options] file
-Options:
-  -o, --out=<file>   Specifies the output deko3d shader module file (.dksh)
-  -r, --raw=<file>   Specifies the file to which output raw Maxwell bytecode
-  -t, --tgsi=<file>  Specifies the file to which output intermediary TGSI code
-  -s, --stage=<name> Specifies the pipeline stage of the shader
-                     (vert, tess_ctrl, tess_eval, geom, frag, comp)
-  -v, --version      Displays version information
+
+This produces `libuam.a` (~6 MB) for aarch64.
+
+## C API
+
+```c
+#include <libuam/libuam.h>
+
+// Create a compiler for a specific shader stage
+uam_compiler *compiler = uam_create_compiler(DkStage_Vertex);
+// Or with a custom optimization level (0-3, default is 3):
+uam_compiler *compiler = uam_create_compiler_ex(DkStage_Fragment, 2);
+
+// Compile GLSL source to DKSH
+const char *glsl = "#version 460\nlayout(location=0) in vec4 pos;\nvoid main() { gl_Position = pos; }";
+if (uam_compile_dksh(compiler, glsl)) {
+    // Get DKSH size and write to memory
+    size_t size = uam_get_code_size(compiler);
+    void *dksh = malloc(size);
+    uam_write_code(compiler, dksh);
+
+    // Query shader info
+    int gprs = uam_get_num_gprs(compiler);
+    unsigned int code_size = uam_get_raw_code_size(compiler);
+} else {
+    // Get error/warning log
+    const char *log = uam_get_error_log(compiler);
+    fprintf(stderr, "Compilation failed:\n%s\n", log);
+}
+
+// Cleanup
+uam_free_compiler(compiler);
 ```
 
-UAM is the shader compiler designed to produce precompiled DKSH shaders usable with the deko3d graphics API, specifically for the Nvidia Tegra X1 processor found inside the Nintendo Switch.
+### Function reference
 
-UAM is based on [mesa](https://www.mesa3d.org/)'s GLSL parser and TGSI infrastructure; as well as nouveau's nv50_ir code generation backend. As such, it inherits all the capabilities and the feature set (GLSL extension support) offered by mesa/nouveau for GM20x GPUs. In addition, there are a number of customizations and codegen improvements that produce code better suited for use with deko3d.
+| Function | Description |
+|----------|-------------|
+| `uam_create_compiler(stage)` | Create compiler for a pipeline stage (opt level 3) |
+| `uam_create_compiler_ex(stage, opt_level)` | Create compiler with custom optimization level |
+| `uam_free_compiler(compiler)` | Destroy compiler and free resources |
+| `uam_compile_dksh(compiler, glsl)` | Compile GLSL source, returns true on success |
+| `uam_get_code_size(compiler)` | Get DKSH binary size (with container) |
+| `uam_get_raw_code_size(compiler)` | Get raw Maxwell bytecode size |
+| `uam_write_code(compiler, memory)` | Write DKSH binary to a memory buffer |
+| `uam_get_error_log(compiler)` | Get error/warning log from last compilation |
+| `uam_get_num_gprs(compiler)` | Get GPU register count used by compiled shader |
+| `uam_get_version(major, minor, micro)` | Get library version |
+
+## GLSL requirements
+
+- Shaders must use **GLSL 4.60** syntax (`#version 460`)
+- UBO, SSBO, sampler and image bindings must be **explicit**: `layout(binding = N)`
+- Default uniforms outside UBO blocks are **not supported** (will produce an error)
+- `layout(location = N)` is required for vertex inputs and varying I/O
+- The `DEKO3D` preprocessor symbol is defined (value 100)
 
 ## Differences with standard GL and mesa/nouveau
 
-- The `DEKO3D` preprocessor symbol is defined, with a value of 100.
 - UBO, SSBO, sampler and image bindings are **required to be explicit** (i.e. `layout (binding = N)`), and they have a one-to-one correspondence with deko3d bindings. Failure to specify explicit bindings will result in an error.
 - There is support for 16 UBOs, 16 SSBOs, 32 "samplers" (combined image+sampler handle), and 8 images for each and every shader stage; with binding IDs ranging from zero to the corresponding limit minus one. However note that due to hardware limitations, only compute stage UBO bindings 0-5 are natively supported, while 6-15 are emulated as "SSBOs".
 - Default uniforms outside UBO blocks (which end up in the internal driver const buffer) are detected, however they are reported as an error due to lack of support in both DKSH and deko3d for retrieving the location of and setting these uniforms.

@@ -31,6 +31,7 @@ int uam_get_version_nb(void);
 // Creates/destroys compiler
 // Returns NULL on failure
 uam_compiler *uam_create_compiler(DkStage stage);
+uam_compiler *uam_create_compiler_ex(DkStage stage, int opt_level);
 void uam_free_compiler(uam_compiler *compiler);
 
 // Compiles the GLSL codes
@@ -42,6 +43,16 @@ size_t uam_get_code_size(const uam_compiler *compiler);
 
 // Write the compiled shader as DKSH to the specified location
 void uam_write_code(const uam_compiler *compiler, void *memory);
+
+// Gets the error/warning log from the last compilation
+// Returns empty string if no errors
+const char *uam_get_error_log(const uam_compiler *compiler);
+
+// Gets the number of GPU registers used by the compiled shader
+int uam_get_num_gprs(const uam_compiler *compiler);
+
+// Gets the raw Maxwell bytecode size (without DKSH container overhead)
+unsigned int uam_get_raw_code_size(const uam_compiler *compiler);
 
 #ifdef __cplusplus
 }

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 
 #include "tgsi/tgsi_text.h"
 #include "tgsi/tgsi_dump.h"
@@ -30,6 +31,8 @@ class DekoCompiler
 	NvShaderHeader m_nvsh;
 	DkshProgramHeader m_dkph;
 
+	std::string m_errorLog;
+
 	void RetrieveAndPadCode();
 	void GenerateHeaders();
 
@@ -44,4 +47,8 @@ public:
 
 	void OutputDkshToMemory(void *mem) const;
 	size_t CalculateDkshSize() const;
+
+	const char* GetErrorLog() const { return m_errorLog.c_str(); }
+	int GetNumGprs() const { return m_dkph.num_gprs; }
+	uint32_t GetCodeSize() const { return m_codeSize; }
 };

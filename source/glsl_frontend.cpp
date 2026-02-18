@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include "glsl/ast.h"
 #include "glsl/glsl_parser_extras.h"
@@ -328,16 +329,57 @@ initialize_context(struct gl_context *ctx, gl_api api)
 }
 
 static struct gl_context gl_ctx;
+static int glsl_frontend_refcount = 0;
+
+/* Error log capture */
+static char s_log_buffer[8192];
+static size_t s_log_offset = 0;
+
+void glsl_frontend_reset_log()
+{
+	s_log_offset = 0;
+	s_log_buffer[0] = '\0';
+}
+
+const char* glsl_frontend_get_log()
+{
+	return s_log_buffer;
+}
+
+void glsl_frontend_log(const char *fmt, ...)
+{
+	va_list args;
+
+	/* Write to stderr (backward compatible) */
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+
+	/* Also capture to buffer */
+	if (s_log_offset < sizeof(s_log_buffer) - 1)
+	{
+		va_start(args, fmt);
+		int n = vsnprintf(s_log_buffer + s_log_offset,
+		                  sizeof(s_log_buffer) - s_log_offset, fmt, args);
+		if (n > 0)
+			s_log_offset += (size_t)n;
+		va_end(args);
+	}
+}
 
 void glsl_frontend_init()
 {
-	initialize_context(&gl_ctx, API_OPENGL_CORE);
+	if (glsl_frontend_refcount++ == 0)
+		initialize_context(&gl_ctx, API_OPENGL_CORE);
 }
 
 void glsl_frontend_exit()
 {
-	_mesa_glsl_release_types();
-	_mesa_glsl_release_builtin_functions();
+	if (--glsl_frontend_refcount == 0)
+	{
+		_mesa_glsl_release_types();
+		_mesa_glsl_release_builtin_functions();
+	}
 }
 
 // Prototypes for translation functions
@@ -403,9 +445,9 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 	_mesa_glsl_compile_shader(&gl_ctx, shader, false, false, true);
 	if (shader->CompileStatus != COMPILE_SUCCESS)
 	{
-		fprintf(stderr, "Shader failed to compile.\n");
+		glsl_frontend_log("Shader failed to compile.\n");
 		if (shader->InfoLog && shader->InfoLog[0])
-			fprintf(stderr, "%s\n", shader->InfoLog);
+			glsl_frontend_log("%s\n", shader->InfoLog);
 		goto _fail;
 	}
 	_mesa_clear_shader_program_data(&gl_ctx, prg);
@@ -414,9 +456,9 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 	link_shaders(&gl_ctx, prg);
 	if (prg->data->LinkStatus != LINKING_SUCCESS)
 	{
-		fprintf(stderr, "Shader failed to link.\n");
+		glsl_frontend_log("Shader failed to link.\n");
 		if (prg->data->InfoLog && prg->data->InfoLog[0])
-			fprintf(stderr, "%s\n", prg->data->InfoLog);
+			glsl_frontend_log("%s\n", prg->data->InfoLog);
 		goto _fail;
 	}
 	else
@@ -437,18 +479,18 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 		// Do the TGSI conversion
 		if (!st_link_shader(&gl_ctx, prg))
 		{
-			fprintf(stderr, "st_link_shader failed\n");
+			glsl_frontend_log("st_link_shader failed\n");
 			goto _fail;
 		}
 
 		// Force OriginUpperLeft
 		if (linked_shader->Program->OriginUpperLeft)
-			fprintf(stderr, "warning: origin_upper_left has no effect\n");
+			glsl_frontend_log("warning: origin_upper_left has no effect\n");
 		linked_shader->Program->OriginUpperLeft = GL_TRUE;
 
 		// Check for PixelCenterInteger (unsupported)
 		if (linked_shader->Program->PixelCenterInteger == GL_TRUE) {
-			fprintf(stderr, "error: pixel_center_integer is not supported\n");
+			glsl_frontend_log("error: pixel_center_integer is not supported\n");
 			goto _fail;
 		}
 
@@ -476,13 +518,13 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 				rc = tgsi_translate_compute(&gl_ctx, linked_shader->Program);
 				break;
 			default:
-				fprintf(stderr, "Unsupported stage\n");
+				glsl_frontend_log("Unsupported stage\n");
 				goto _fail;
 		}
 
 		if (!rc)
 		{
-			fprintf(stderr, "Translation failed\n");
+			glsl_frontend_log("Translation failed\n");
 			goto _fail;
 		}
 
@@ -501,7 +543,7 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 			if (location != last_location)
 			{
 				last_location = location;
-				fprintf(stderr, "error: uniform '%s' in driver constbuf (c[0x1][0x%03x]) not supported\n",
+				glsl_frontend_log("error: uniform '%s' in driver constbuf (c[0x1][0x%03x]) not supported\n",
 					p->Name,
 					// "(type=%d dim=%ux%u size=%u)"
 					//storage->type->base_type,

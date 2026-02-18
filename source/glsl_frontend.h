@@ -19,6 +19,11 @@ enum pipeline_stage
 void glsl_frontend_init();
 void glsl_frontend_exit();
 
+/* Error log capture - call reset before compilation, get_log after */
+void glsl_frontend_reset_log();
+const char* glsl_frontend_get_log();
+void glsl_frontend_log(const char *fmt, ...);
+
 glsl_program glsl_program_create(const char* source, pipeline_stage stage);
 const tgsi_token* glsl_program_get_tokens(glsl_program prg, unsigned int& num_tokens);
 void* glsl_program_get_constant_buffer(glsl_program prg, unsigned int& out_size);
