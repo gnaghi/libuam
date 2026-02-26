@@ -84,7 +84,7 @@ subdir('mesa-imported')
 build_mode = get_option('build_mode')
 
 if build_mode == 'lib' or build_mode == 'both'
-	install_headers(uam_install_headers, subdir: 'libuam')
+	install_headers(uam_install_headers, subdir: 'uam')
 
 	uamlib = static_library(
 		'uam',

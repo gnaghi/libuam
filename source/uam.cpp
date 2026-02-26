@@ -1,4 +1,4 @@
-#include "libuam.h"
+#include "uam.h"
 #include "compiler_iface.h"
 
 void uam_get_version(int *major, int *minor, int *micro) {

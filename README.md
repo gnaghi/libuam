@@ -1,6 +1,6 @@
-# libuam - deko3d shader compiler library
+# uam - deko3d shader compiler
 
-libuam is a static library that compiles GLSL 4.60 shaders into DKSH (deko3d shader) binaries at runtime on the Nintendo Switch. It targets the Nvidia Tegra X1 (Maxwell GM20B) GPU.
+uam compiles GLSL 4.60 shaders into DKSH (deko3d shader) binaries. It can be built as a **static library** for runtime compilation on Nintendo Switch, as a **CLI executable** for offline compilation on PC, or **both**. It targets the Nvidia Tegra X1 (Maxwell GM20B) GPU.
 
 Based on [mesa](https://www.mesa3d.org/) 19.0.8's GLSL parser and TGSI infrastructure, and nouveau's nv50_ir code generation backend.
 
@@ -19,7 +19,7 @@ The project can produce a **static library**, a **CLI executable**, or **both**,
 
 | Mode | Output | Use case |
 |------|--------|----------|
-| `lib` | `libuam.a` | Runtime shader compilation on Switch |
+| `lib` | `libuam.a` (static library) | Runtime shader compilation on Switch |
 | `exe` | `uam` executable | Offline shader compilation on PC |
 | `both` (default) | Both targets | Single project, no code duplication |
 
@@ -50,7 +50,7 @@ meson compile -C builddir
 ## C API
 
 ```c
-#include <libuam/libuam.h>
+#include <uam/uam.h>
 
 // Create a compiler for a specific shader stage
 uam_compiler *compiler = uam_create_compiler(DkStage_Vertex);
