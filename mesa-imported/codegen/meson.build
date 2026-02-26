@@ -8,6 +8,7 @@ uam_files += files(
 	'nv50_ir_emit_nv50.cpp',
 	'nv50_ir_emit_nvc0.cpp',
 	'nv50_ir_from_tgsi.cpp',
+	'nv50_ir_from_spirv.cpp',
 	'nv50_ir_graph.cpp',
 	'nv50_ir_lowering_gm107.cpp',
 	'nv50_ir_lowering_nv50.cpp',
