@@ -11,6 +11,7 @@
 #include "codegen/nv50_ir_driver.h"
 
 #include "glsl_frontend.h"
+#include "spirv_frontend.h"
 
 #include "nv_attributes.h"
 #include "nv_shader_header.h"
@@ -41,6 +42,7 @@ public:
 	~DekoCompiler();
 
 	bool CompileGlsl(const char* glsl);
+	bool CompileSpirv(const uint32_t* words, size_t wordCount);
 	void OutputDksh(const char* dkshFile);
 	void OutputRawCode(const char* rawFile);
 	void OutputTgsi(const char* tgsiFile);

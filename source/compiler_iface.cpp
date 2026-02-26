@@ -200,6 +200,55 @@ nvc0_program_assign_varying_slots(struct nv50_ir_prog_info *info)
 	return ret;
 }
 
+// SPIR-V path: VP inputs use Location decorations directly as generic attribute indices
+static int
+nvc0_spirv_vp_assign_input_slots(struct nv50_ir_prog_info *info)
+{
+	unsigned i, c;
+
+	for (i = 0; i < info->numInputs; ++i) {
+		switch (info->in[i].sn) {
+		case TGSI_SEMANTIC_INSTANCEID:
+		case TGSI_SEMANTIC_VERTEXID:
+			info->in[i].mask = 0x1;
+			info->in[i].slot[0] =
+				nvc0_shader_input_address(info->in[i].sn, 0) / 4;
+			continue;
+		default:
+			break;
+		}
+
+		// For SPIR-V, si already contains the Location decoration value
+		// Map it directly to the generic attribute slot
+		int location = info->in[i].si;
+		if (location >= 0) {
+			for (c = 0; c < 4; ++c)
+				info->in[i].slot[c] = (NvAttrib_Generic(location) + c * 0x4) / 4;
+		}
+	}
+
+	return 0;
+}
+
+static int
+nvc0_spirv_assign_varying_slots(struct nv50_ir_prog_info *info)
+{
+	int ret;
+
+	if (info->type == PIPE_SHADER_VERTEX)
+		ret = nvc0_spirv_vp_assign_input_slots(info);
+	else
+		ret = nvc0_sp_assign_input_slots(info);
+	if (ret)
+		return ret;
+
+	if (info->type == PIPE_SHADER_FRAGMENT)
+		ret = nvc0_fp_assign_output_slots(info);
+	else
+		ret = nvc0_sp_assign_output_slots(info);
+	return ret;
+}
+
 DekoCompiler::DekoCompiler(pipeline_stage stage, int optLevel) :
 	m_stage{stage}, m_glsl{}, m_tgsi{}, m_tgsiNumTokens{}, m_info{}, m_code{}, m_codeSize{},
 	m_nvsh{}, m_dkph{}
@@ -335,6 +384,58 @@ bool DekoCompiler::CompileGlsl(const char* glsl)
 	m_data = glsl_program_get_constant_buffer(m_glsl, m_dataSize);
 	RetrieveAndPadCode();
 	GenerateHeaders();
+	return true;
+}
+
+bool DekoCompiler::CompileSpirv(const uint32_t* words, size_t wordCount)
+{
+	m_errorLog.clear();
+
+	spirv::Program* spvProg = spirv::program_create(words, wordCount, m_stage);
+	if (!spvProg)
+	{
+		m_errorLog = "Failed to parse SPIR-V binary\n";
+		return false;
+	}
+
+	// Switch to SPIR-V source representation
+	m_info.bin.sourceRep = PIPE_SHADER_IR_SPIRV;
+	m_info.bin.source = spvProg;
+	m_info.driverPriv = nullptr; // no GLSL program for SPIR-V path
+
+	// Use SPIR-V-specific slot assignment
+	m_info.assignSlots = nvc0_spirv_assign_varying_slots;
+
+	int ret = nv50_ir_generate_code(&m_info);
+	if (ret < 0)
+	{
+		char buf[64];
+		snprintf(buf, sizeof(buf), "Error compiling SPIR-V program: %d\n", ret);
+		m_errorLog = buf;
+		fprintf(stderr, "%s", buf);
+		delete spvProg;
+		return false;
+	}
+
+	if (m_info.io.fp64_rcprsq)
+	{
+		const char *msg = "warning: program uses 64-bit floating point reciprocal/square root, for which only a rough approximation with 20 bits of mantissa is supported by hardware\n";
+		m_errorLog += msg;
+		fprintf(stderr, "%s", msg);
+	}
+	if (m_info.io.int_divmod)
+	{
+		const char *msg = "warning: program uses non-constant integer division/modulo, which is unsupported by hardware; floating point emulation with resulting loss of precision has been applied\n";
+		m_errorLog += msg;
+		fprintf(stderr, "%s", msg);
+	}
+
+	m_data = nullptr;
+	m_dataSize = 0;
+	RetrieveAndPadCode();
+	GenerateHeaders();
+
+	delete spvProg;
 	return true;
 }
 

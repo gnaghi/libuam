@@ -38,6 +38,12 @@ void uam_free_compiler(uam_compiler *compiler);
 // Returns true on success, false otherwise
 bool uam_compile_dksh(uam_compiler *compiler, const char *glsl);
 
+// Compiles a SPIR-V binary to DKSH
+// spirv_data: pointer to SPIR-V binary (must start with SPIR-V magic)
+// spirv_size: size in bytes (must be a multiple of 4)
+// Returns true on success, false otherwise
+bool uam_compile_spirv(uam_compiler *compiler, const void *spirv_data, size_t spirv_size);
+
 // Gets the size of the previously compiled shader, as DKSH file
 size_t uam_get_code_size(const uam_compiler *compiler);
 

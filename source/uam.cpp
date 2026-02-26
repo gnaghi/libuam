@@ -57,6 +57,13 @@ bool uam_compile_dksh(uam_compiler *compiler, const char *glsl) {
     return reinterpret_cast<DekoCompiler *>(compiler)->CompileGlsl(glsl);
 }
 
+bool uam_compile_spirv(uam_compiler *compiler, const void *spirv_data, size_t spirv_size) {
+    if (!spirv_data || spirv_size < 20 || (spirv_size % 4) != 0)
+        return false;
+    return reinterpret_cast<DekoCompiler *>(compiler)->CompileSpirv(
+        static_cast<const uint32_t *>(spirv_data), spirv_size / 4);
+}
+
 size_t uam_get_code_size(const uam_compiler *compiler) {
     return reinterpret_cast<const DekoCompiler *>(compiler)->CalculateDkshSize();
 }
