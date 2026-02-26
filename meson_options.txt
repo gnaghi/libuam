@@ -1,0 +1,2 @@
+option('build_mode', type: 'combo', choices: ['lib', 'exe', 'both'], value: 'both',
+       description: 'Build targets: lib (static library only), exe (CLI executable only), both')

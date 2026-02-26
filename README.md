@@ -4,7 +4,7 @@ libuam is a static library that compiles GLSL 4.60 shaders into DKSH (deko3d sha
 
 Based on [mesa](https://www.mesa3d.org/) 19.0.8's GLSL parser and TGSI infrastructure, and nouveau's nv50_ir code generation backend.
 
-## Building for Nintendo Switch
+## Building
 
 ### Prerequisites
 
@@ -13,20 +13,39 @@ Based on [mesa](https://www.mesa3d.org/) 19.0.8's GLSL parser and TGSI infrastru
 - `bison` and `flex` (`pacman -S bison flex`)
 - `meson` and `ninja` (`pacman -S meson`)
 
-### Cross-compilation
+### Build modes
+
+The project can produce a **static library**, a **CLI executable**, or **both**, controlled by the `build_mode` option:
+
+| Mode | Output | Use case |
+|------|--------|----------|
+| `lib` | `libuam.a` | Runtime shader compilation on Switch |
+| `exe` | `uam` executable | Offline shader compilation on PC |
+| `both` (default) | Both targets | Single project, no code duplication |
+
+### Cross-compilation (library for Switch)
 
 ```bash
-# Configure (once)
-meson setup builddir --cross-file cross_switch.txt
-
-# Build
+meson setup builddir --cross-file cross_switch.txt -Dbuild_mode=lib
 meson compile -C builddir
-
-# Install to devkitPro portlibs
 DESTDIR=/opt/devkitpro/portlibs/switch meson install -C builddir
 ```
 
-This produces `libuam.a` (~6 MB) for aarch64.
+### Native build (CLI executable for PC)
+
+```bash
+meson setup builddir_host -Dbuild_mode=exe
+meson compile -C builddir_host
+```
+
+Usage: `uam -s vert -o output.dksh input.glsl`
+
+### Both targets
+
+```bash
+meson setup builddir -Dbuild_mode=both
+meson compile -C builddir
+```
 
 ## C API
 

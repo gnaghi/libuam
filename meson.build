@@ -81,14 +81,29 @@ uam_install_headers = []
 subdir('source')
 subdir('mesa-imported')
 
-install_headers(uam_install_headers, subdir: 'libuam')
+build_mode = get_option('build_mode')
 
-uamlib = static_library(
-	'uam',
-	uam_files,
-	include_directories: uam_incs,
-	install: true,
-)
+if build_mode == 'lib' or build_mode == 'both'
+	install_headers(uam_install_headers, subdir: 'libuam')
 
-pkgcfg = import('pkgconfig')
-pkgcfg.generate(uamlib)
+	uamlib = static_library(
+		'uam',
+		uam_files,
+		include_directories: uam_incs,
+		install: true,
+	)
+
+	pkgcfg = import('pkgconfig')
+	pkgcfg.generate(uamlib)
+endif
+
+if build_mode == 'exe' or build_mode == 'both'
+	uamexe = executable(
+		'uam',
+		uam_files + files('source/main.cpp'),
+		c_args: ['-DDESKTOP'],
+		cpp_args: ['-DDESKTOP'],
+		include_directories: uam_incs,
+		install: true,
+	)
+endif
