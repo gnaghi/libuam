@@ -5,6 +5,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #if defined(__has_include) && __has_include("deko3d.h")
@@ -34,14 +35,9 @@ uam_compiler *uam_create_compiler(DkStage stage);
 uam_compiler *uam_create_compiler_ex(DkStage stage, int opt_level);
 void uam_free_compiler(uam_compiler *compiler);
 
-// Compiles GLSL using Mesa frontend (original path)
+// Compiles GLSL using Mesa frontend
 // Returns true on success, false otherwise
 bool uam_compile_dksh(uam_compiler *compiler, const char *glsl);
-
-// Compiles GLSL using glslang frontend (GLSL -> SPIR-V -> NV50_IR)
-// This path supports more GLSL constructs than the Mesa frontend
-// Returns true on success, false otherwise
-bool uam_compile_glslang(uam_compiler *compiler, const char *glsl);
 
 // Compiles a SPIR-V binary to DKSH
 // spirv_data: pointer to SPIR-V binary (must start with SPIR-V magic)
@@ -64,6 +60,51 @@ int uam_get_num_gprs(const uam_compiler *compiler);
 
 // Gets the raw Maxwell bytecode size (without DKSH container overhead)
 unsigned int uam_get_raw_code_size(const uam_compiler *compiler);
+
+// Uniform metadata (for driver constbuf / bare uniforms in ES 1.00 shaders)
+typedef struct {
+    const char *name;         // Uniform name
+    uint32_t offset;          // Byte offset in driver constbuf
+    uint32_t size_bytes;      // Total size in bytes
+    uint8_t  base_type;       // 0=uint, 1=int, 2=float, 6=bool, 7=sampler
+    uint8_t  vector_elements; // 1-4
+    uint8_t  matrix_columns;  // 1 for scalars/vectors, 2-4 for matrices
+    uint8_t  is_sampler;      // 1 if sampler type
+    uint32_t array_elements;  // 0 for non-array, N for array[N]
+} uam_uniform_info_t;
+
+// Gets the number of driver constbuf uniforms in the compiled shader
+int uam_get_num_uniforms(const uam_compiler *compiler);
+
+// Gets uniform info by index (0..num_uniforms-1)
+// Returns false if index out of range
+bool uam_get_uniform_info(const uam_compiler *compiler, int index, uam_uniform_info_t *info);
+
+// Gets the total size of the driver constbuf in bytes
+uint32_t uam_get_constbuf_size(const uam_compiler *compiler);
+
+// Sampler metadata (for ES 1.00 auto-bound samplers)
+typedef struct {
+    const char *name;         // Sampler uniform name
+    int binding;              // Texture descriptor binding (0, 1, 2...)
+    uint8_t type;             // 0=sampler2D, 1=samplerCube
+} uam_sampler_info_t;
+
+// Gets the number of sampler uniforms in the compiled shader
+int uam_get_num_samplers(const uam_compiler *compiler);
+
+// Gets sampler info by index (0..num_samplers-1)
+// Returns false if index out of range
+bool uam_get_sampler_info(const uam_compiler *compiler, int index, uam_sampler_info_t *info);
+
+// Returns true if driver constbuf was remapped from c[0] to UBO 0 (c[1]).
+// When true, SwitchGLES must bind a UBO at id=0 with uniform data.
+bool uam_is_constbuf_remapped(const uam_compiler *compiler);
+
+// Gets the initial constant buffer data (for literals/state embedded by Mesa).
+// Returns NULL if no data. *size is set to the data size in bytes.
+// The returned pointer is valid until the compiler is freed.
+const void *uam_get_constbuf_initial_data(const uam_compiler *compiler, uint32_t *size);
 
 #ifdef __cplusplus
 }

@@ -192,6 +192,7 @@ struct nv50_ir_prog_info
       uint8_t msInfoCBSlot;      /* cX[] used for multisample info */
       uint16_t msInfoBase;       /* base address for multisample info */
       uint16_t uboInfoBase;      /* base address for compute UBOs (gk104+) */
+      bool remapDriverCBToUBO0;  /* remap driver constbuf c[0] to UBO 0 c[1] */
    } io;
 
    /* driver callback to assign input/output locations */

@@ -251,7 +251,8 @@ nvc0_spirv_assign_varying_slots(struct nv50_ir_prog_info *info)
 
 DekoCompiler::DekoCompiler(pipeline_stage stage, int optLevel) :
 	m_stage{stage}, m_glsl{}, m_tgsi{}, m_tgsiNumTokens{}, m_info{}, m_code{}, m_codeSize{},
-	m_nvsh{}, m_dkph{}
+	m_nvsh{}, m_dkph{}, m_uniforms{}, m_numUniforms{0}, m_constbufSize{0},
+	m_samplers{}, m_numSamplers{0}
 {
 	m_nvsh.version = 3;
 	m_nvsh.sass_version = 3;
@@ -328,7 +329,6 @@ DekoCompiler::DekoCompiler(pipeline_stage stage, int optLevel) :
 	m_info.assignSlots = nvc0_program_assign_varying_slots;
 
 	glsl_frontend_init();
-	glslang_fe_init();
 }
 
 DekoCompiler::~DekoCompiler()
@@ -336,7 +336,6 @@ DekoCompiler::~DekoCompiler()
 	if (m_glsl)
 		glsl_program_free(m_glsl);
 
-	glslang_fe_exit();
 	glsl_frontend_exit();
 }
 
@@ -352,10 +351,34 @@ bool DekoCompiler::CompileGlsl(const char* glsl)
 		return false;
 	}
 
+	/* Capture uniform metadata from the compiled program */
+	m_numUniforms = glsl_program_get_num_uniforms(m_glsl);
+	m_constbufSize = glsl_program_get_constbuf_size(m_glsl);
+	for (int i = 0; i < m_numUniforms && i < GLSL_UNIFORM_MAX; i++) {
+		const glsl_uniform_info_t *src = glsl_program_get_uniform_info(m_glsl, i);
+		if (src)
+			m_uniforms[i] = *src;
+	}
+
+	/* Capture sampler metadata */
+	m_numSamplers = glsl_program_get_num_samplers(m_glsl);
+	for (int i = 0; i < m_numSamplers && i < GLSL_SAMPLER_MAX; i++) {
+		const glsl_sampler_info_t *src = glsl_program_get_sampler_info(m_glsl, i);
+		if (src)
+			m_samplers[i] = *src;
+	}
+
 	m_tgsi = glsl_program_get_tokens(m_glsl, m_tgsiNumTokens);
 	m_info.bin.source = m_tgsi;
 	m_info.bin.smemSize = glsl_program_compute_get_shared_size(m_glsl); // Total size of glsl shared variables. (translation process doesn't actually need this, but for the sake of consistency with nouveau, we keep this value here too)
 	m_info.driverPriv = m_glsl;
+
+	/* Remap bare uniforms from driver constbuf (c[0], slot 1) to UBO 0
+	 * (c[1], slot 2) so they can be dynamically updated via
+	 * dkCmdBufBindUniformBuffer(stage, 0, ...). Only needed when the
+	 * shader has bare uniforms (ES 1.00 style). */
+	m_info.io.remapDriverCBToUBO0 = (m_numUniforms > 0 || m_numSamplers > 0);
+
 	int ret = nv50_ir_generate_code(&m_info);
 	if (ret < 0)
 	{
@@ -387,28 +410,6 @@ bool DekoCompiler::CompileGlsl(const char* glsl)
 	RetrieveAndPadCode();
 	GenerateHeaders();
 	return true;
-}
-
-bool DekoCompiler::CompileGlslViaGlslang(const char* glsl)
-{
-	m_errorLog.clear();
-
-	/* Use glslang to compile GLSL → SPIR-V */
-	uint32_t *spvWords = nullptr;
-	size_t spvWordCount = 0;
-	char *errorMsg = nullptr;
-
-	if (!glslang_fe_compile(glsl, m_stage, &spvWords, &spvWordCount, &errorMsg)) {
-		m_errorLog = errorMsg ? errorMsg : "glslang compilation failed";
-		free(errorMsg);
-		return false;
-	}
-	free(errorMsg);
-
-	/* Feed SPIR-V into existing SPIR-V pipeline */
-	bool result = CompileSpirv(spvWords, spvWordCount);
-	free(spvWords);
-	return result;
 }
 
 bool DekoCompiler::CompileSpirv(const uint32_t* words, size_t wordCount)

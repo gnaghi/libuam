@@ -11,7 +11,6 @@
 #include "codegen/nv50_ir_driver.h"
 
 #include "glsl_frontend.h"
-#include "glslang_frontend.h"
 #include "spirv_frontend.h"
 
 #include "nv_attributes.h"
@@ -35,6 +34,15 @@ class DekoCompiler
 
 	std::string m_errorLog;
 
+	/* Driver constbuf uniform metadata (for ES 1.00 bare uniforms) */
+	glsl_uniform_info_t m_uniforms[GLSL_UNIFORM_MAX];
+	int m_numUniforms;
+	uint32_t m_constbufSize;
+
+	/* Sampler metadata (for ES 1.00 auto-bound samplers) */
+	glsl_sampler_info_t m_samplers[GLSL_SAMPLER_MAX];
+	int m_numSamplers;
+
 	void RetrieveAndPadCode();
 	void GenerateHeaders();
 
@@ -43,7 +51,6 @@ public:
 	~DekoCompiler();
 
 	bool CompileGlsl(const char* glsl);
-	bool CompileGlslViaGlslang(const char* glsl);
 	bool CompileSpirv(const uint32_t* words, size_t wordCount);
 	void OutputDksh(const char* dkshFile);
 	void OutputRawCode(const char* rawFile);
@@ -55,4 +62,20 @@ public:
 	const char* GetErrorLog() const { return m_errorLog.c_str(); }
 	int GetNumGprs() const { return m_dkph.num_gprs; }
 	uint32_t GetCodeSize() const { return m_codeSize; }
+
+	/* Uniform metadata accessors */
+	int GetNumUniforms() const { return m_numUniforms; }
+	const glsl_uniform_info_t* GetUniformInfo(int index) const {
+		return (index >= 0 && index < m_numUniforms) ? &m_uniforms[index] : nullptr;
+	}
+	uint32_t GetConstbufSize() const { return m_constbufSize; }
+	bool IsConstbufRemapped() const { return m_numUniforms > 0 || m_numSamplers > 0; }
+	const void* GetConstbufData() const { return m_data; }
+	uint32_t GetConstbufDataSize() const { return m_dataSize; }
+
+	/* Sampler metadata accessors */
+	int GetNumSamplers() const { return m_numSamplers; }
+	const glsl_sampler_info_t* GetSamplerInfo(int index) const {
+		return (index >= 0 && index < m_numSamplers) ? &m_samplers[index] : nullptr;
+	}
 };

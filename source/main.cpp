@@ -13,9 +13,8 @@ static int usage(const char* prog)
 		"  -t, --tgsi=<file>  Specifies the file to which output intermediary TGSI code\n"
 		"  -s, --stage=<name> Specifies the pipeline stage of the shader\n"
 		"                     (vert, tess_ctrl, tess_eval, geom, frag, comp)\n"
-		"  -i, --input-format=<fmt>  Input format: glsl (default), spirv, or glslang\n"
+		"  -i, --input-format=<fmt>  Input format: glsl (default) or spirv\n"
 		"                     glsl: Mesa frontend (default)\n"
-		"                     glslang: glslang frontend (GLSL -> SPIR-V -> NV50_IR)\n"
 		"                     spirv: direct SPIR-V input\n"
 		"                     Auto-detected from file content if not specified\n"
 		"  -v, --version      Displays version information\n"
@@ -105,7 +104,7 @@ int main(int argc, char* argv[])
 	fileData[fsize] = 0;
 
 	// Determine input format: auto-detect SPIR-V magic if not specified
-	// 0 = glsl (mesa), 1 = spirv, 2 = glslang
+	// 0 = glsl (mesa), 1 = spirv
 	int inputMode = 0;
 	if (inputFormat)
 	{
@@ -113,11 +112,9 @@ int main(int argc, char* argv[])
 			inputMode = 1;
 		else if (strcmp(inputFormat, "glsl") == 0)
 			inputMode = 0;
-		else if (strcmp(inputFormat, "glslang") == 0)
-			inputMode = 2;
 		else
 		{
-			fprintf(stderr, "Unrecognized input format: `%s' (use glsl, glslang, or spirv)\n", inputFormat);
+			fprintf(stderr, "Unrecognized input format: `%s' (use glsl or spirv)\n", inputFormat);
 			delete[] fileData;
 			return EXIT_FAILURE;
 		}
@@ -143,10 +140,6 @@ int main(int argc, char* argv[])
 		}
 		rc = compiler.CompileSpirv(reinterpret_cast<const uint32_t*>(fileData), fsize / 4);
 	}
-	else if (inputMode == 2)
-	{
-		rc = compiler.CompileGlslViaGlslang(fileData);
-	}
 	else
 	{
 		rc = compiler.CompileGlsl(fileData);
@@ -162,6 +155,41 @@ int main(int argc, char* argv[])
 		else
 			fprintf(stderr, "Compilation failed (no error log)\n");
 		return EXIT_FAILURE;
+	}
+
+	/* Print uniform metadata if present */
+	int numUniforms = compiler.GetNumUniforms();
+	int numSamplers = compiler.GetNumSamplers();
+	if (numUniforms > 0 || numSamplers > 0)
+	{
+		printf("--- Metadata (uniforms: %d, samplers: %d, constbuf: %u bytes, remapped: %s) ---\n",
+			numUniforms, numSamplers, compiler.GetConstbufSize(),
+			compiler.IsConstbufRemapped() ? "YES (c[0]->c[1])" : "no");
+		for (int i = 0; i < numUniforms; i++)
+		{
+			const glsl_uniform_info_t *u = compiler.GetUniformInfo(i);
+			if (!u) continue;
+			const char *typeNames[] = {"uint","int","float","?","?","?","bool","sampler"};
+			const char *typeName = (u->base_type < 8) ? typeNames[u->base_type] : "?";
+			printf("  uniform[%d] %s: %s", i, u->name, typeName);
+			if (u->matrix_columns > 1)
+				printf("mat%dx%d", u->matrix_columns, u->vector_elements);
+			else if (u->vector_elements > 1)
+				printf("vec%d", u->vector_elements);
+			printf(" offset=%u size=%u", u->offset, u->size_bytes);
+			if (u->array_elements > 0)
+				printf(" array[%u]", u->array_elements);
+			printf("\n");
+		}
+		for (int i = 0; i < numSamplers; i++)
+		{
+			const glsl_sampler_info_t *s = compiler.GetSamplerInfo(i);
+			if (!s) continue;
+			printf("  sampler[%d] %s: binding=%d type=%s\n",
+				i, s->name, s->binding,
+				s->type == 1 ? "samplerCube" : "sampler2D");
+		}
+		printf("---\n");
 	}
 
 	if (outFile)

@@ -29,6 +29,15 @@ extern "C"
 
 #include "glsl_frontend.h"
 
+/* Uniform metadata storage — populated during glsl_program_create() */
+static glsl_uniform_info_t s_uniforms[GLSL_UNIFORM_MAX];
+static int s_num_uniforms = 0;
+static uint32_t s_constbuf_size = 0;
+
+/* Sampler metadata storage — populated during glsl_program_create() */
+static glsl_sampler_info_t s_samplers[GLSL_SAMPLER_MAX];
+static int s_num_samplers = 0;
+
 class dead_variable_visitor : public ir_hierarchical_visitor {
 public:
 	dead_variable_visitor()
@@ -452,6 +461,26 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 	}
 	_mesa_clear_shader_program_data(&gl_ctx, prg);
 
+	/* Auto-assign bindings to unbound sampler/image uniforms (ES 1.00
+	 * doesn't have explicit binding layout qualifiers). Assign sequential
+	 * binding numbers starting from 0, matching GLES2 default behavior
+	 * where sampler N reads from texture unit N. */
+	{
+		int next_sampler_binding = 0;
+		foreach_in_list(ir_instruction, node, shader->ir) {
+			ir_variable *var = node->as_variable();
+			if (!var || var->data.mode != ir_var_uniform)
+				continue;
+			const glsl_type *type = var->type->without_array();
+			if ((type->is_sampler() || type->is_image()) &&
+			    !var->data.explicit_binding) {
+				var->data.explicit_binding = true;
+				var->data.binding = next_sampler_binding;
+				next_sampler_binding++;
+			}
+		}
+	}
+
 	// Link the shader
 	link_shaders(&gl_ctx, prg);
 	if (prg->data->LinkStatus != LINKING_SUCCESS)
@@ -528,9 +557,14 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 			goto _fail;
 		}
 
+		/* Collect driver constbuf uniform metadata instead of rejecting.
+		 * This enables direct ES 1.00 compilation where bare uniforms
+		 * (without UBO blocks) go into the driver constbuf c[0x1].
+		 */
+		s_num_uniforms = 0;
+		s_constbuf_size = 0;
 		gl_program_parameter_list *pl = linked_shader->Program->Parameters;
 		unsigned last_location = ~0U;
-		bool has_uniforms_in_driver_cbuf = false;
 		for (unsigned i = 0; i < pl->NumParameters; i ++)
 		{
 			gl_program_parameter *p = &pl->Parameters[i];
@@ -540,21 +574,67 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 			gl_uniform_storage *storage = &prg->data->UniformStorage[location];
 			if (storage->builtin || storage->hidden)
 				continue;
-			if (location != last_location)
+			if (location != last_location && s_num_uniforms < GLSL_UNIFORM_MAX)
 			{
 				last_location = location;
-				glsl_frontend_log("error: uniform '%s' in driver constbuf (c[0x1][0x%03x]) not supported\n",
-					p->Name,
-					// "(type=%d dim=%ux%u size=%u)"
-					//storage->type->base_type,
-					//storage->type->matrix_columns, storage->type->vector_elements,
-					//storage->array_elements,
-					4*pl->ParameterValueOffset[i]);
-				has_uniforms_in_driver_cbuf = true;
+				glsl_uniform_info_t *u = &s_uniforms[s_num_uniforms];
+				strncpy(u->name, p->Name, GLSL_UNIFORM_MAX_NAME - 1);
+				u->name[GLSL_UNIFORM_MAX_NAME - 1] = '\0';
+				u->offset = 4 * pl->ParameterValueOffset[i];
+				u->base_type = storage->type->base_type;
+				u->vector_elements = storage->type->vector_elements;
+				u->matrix_columns = storage->type->matrix_columns;
+				u->is_sampler = storage->type->is_sampler() ? 1 : 0;
+				u->array_elements = storage->array_elements;
+
+				/* Compute size: vec4-aligned rows × columns × array */
+				unsigned cols = storage->type->matrix_columns;
+				unsigned rows = storage->type->vector_elements;
+				unsigned elem_size = 4 * cols * rows; /* each component is 4 bytes */
+				if (cols > 1) {
+					/* Matrices: each column is padded to vec4 (16 bytes) */
+					elem_size = 16 * cols;
+				} else {
+					/* Vectors: padded to 4*vector_elements */
+					elem_size = 4 * rows;
+				}
+				unsigned count = storage->array_elements ? storage->array_elements : 1;
+				u->size_bytes = elem_size * count;
+
+				uint32_t end = u->offset + u->size_bytes;
+				if (end > s_constbuf_size)
+					s_constbuf_size = end;
+
+				s_num_uniforms++;
 			}
 		}
-		if (has_uniforms_in_driver_cbuf)
-			goto _fail;
+
+		/* Collect sampler metadata from UniformStorage */
+		s_num_samplers = 0;
+		for (unsigned i = 0; i < prg->data->NumUniformStorage && s_num_samplers < GLSL_SAMPLER_MAX; i++)
+		{
+			gl_uniform_storage *storage = &prg->data->UniformStorage[i];
+			if (storage->builtin || storage->hidden) continue;
+			if (!storage->type->is_sampler()) continue;
+
+			glsl_sampler_info_t *s = &s_samplers[s_num_samplers];
+			strncpy(s->name, storage->name, GLSL_UNIFORM_MAX_NAME - 1);
+			s->name[GLSL_UNIFORM_MAX_NAME - 1] = '\0';
+			/* Find the binding from opaque index (check all stages) */
+			s->binding = -1;
+			for (int st = 0; st < MESA_SHADER_STAGES; st++) {
+				if (storage->opaque[st].active) {
+					s->binding = storage->opaque[st].index;
+					break;
+				}
+			}
+			/* Determine sampler type */
+			s->type = 0; /* default: sampler2D */
+			if (storage->type->sampler_dimensionality == GLSL_SAMPLER_DIM_CUBE)
+				s->type = 1; /* samplerCube */
+
+			s_num_samplers++;
+		}
 	}
 
 	return prg;
@@ -630,4 +710,38 @@ void glsl_program_free(glsl_program prg)
 	delete prg->FragDataIndexBindings;
 
 	ralloc_free(prg);
+}
+
+int glsl_program_get_num_uniforms(glsl_program prg)
+{
+	(void)prg;
+	return s_num_uniforms;
+}
+
+const glsl_uniform_info_t* glsl_program_get_uniform_info(glsl_program prg, int index)
+{
+	(void)prg;
+	if (index < 0 || index >= s_num_uniforms)
+		return nullptr;
+	return &s_uniforms[index];
+}
+
+uint32_t glsl_program_get_constbuf_size(glsl_program prg)
+{
+	(void)prg;
+	return s_constbuf_size;
+}
+
+int glsl_program_get_num_samplers(glsl_program prg)
+{
+	(void)prg;
+	return s_num_samplers;
+}
+
+const glsl_sampler_info_t* glsl_program_get_sampler_info(glsl_program prg, int index)
+{
+	(void)prg;
+	if (index < 0 || index >= s_num_samplers)
+		return nullptr;
+	return &s_samplers[index];
 }

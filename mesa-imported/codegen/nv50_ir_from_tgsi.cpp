@@ -1860,6 +1860,13 @@ Converter::makeSym(uint tgsiFile, int fileIdx, int idx, int c, uint32_t address)
 
    sym->reg.fileIndex = fileIdx;
 
+   /* Remap driver constbuf (c[0]) to UBO 0 (c[1]) for dynamic binding.
+    * Without this, bare uniforms end up in hardware slot 1 which has no
+    * public deko3d API for dynamic updates. UBO 0 (c[1]) maps to slot 2,
+    * which is bindable via dkCmdBufBindUniformBuffer(stage, 0, ...). */
+   if (tgsiFile == TGSI_FILE_CONSTANT && fileIdx == 0 && info->io.remapDriverCBToUBO0)
+      sym->reg.fileIndex = 1;
+
    if (tgsiFile == TGSI_FILE_MEMORY) {
       switch (code->memoryFiles[fileIdx].mem_type) {
       case TGSI_MEMORY_TYPE_GLOBAL:
