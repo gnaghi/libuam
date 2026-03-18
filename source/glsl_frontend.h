@@ -87,3 +87,7 @@ typedef struct {
 
 int glsl_program_get_num_inputs(glsl_program prg);
 const glsl_input_info_t* glsl_program_get_input_info(glsl_program prg, int index);
+
+/* Returns byte offset of gl_DepthRange in driver constbuf, or -1 if not used.
+ * The depth range occupies a vec4: [near, far, diff, unused]. */
+int glsl_program_get_depth_range_offset(glsl_program prg);

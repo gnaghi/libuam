@@ -42,6 +42,9 @@ static int s_num_samplers = 0;
 static glsl_input_info_t s_inputs[GLSL_INPUT_MAX];
 static int s_num_inputs = 0;
 
+/* gl_DepthRange offset in driver constbuf (-1 = not used by this shader) */
+static int s_depth_range_offset = -1;
+
 /* Attribute bindings — set by caller before glsl_program_create() */
 static glsl_attrib_binding_t s_attrib_bindings[GLSL_ATTRIB_BINDING_MAX];
 static int s_num_attrib_bindings = 0;
@@ -251,7 +254,7 @@ initialize_context(struct gl_context *ctx, gl_api api)
 	ctx->Const.MaxRenderbufferSize = ctx->Const.MaxTextureRectSize;
 	ctx->Const.SubPixelBits = 8;
 	ctx->Const.ViewportSubpixelBits = 8;
-	ctx->Const.MaxDrawBuffers = ctx->Const.MaxColorAttachments = 8;
+	ctx->Const.MaxDrawBuffers = ctx->Const.MaxColorAttachments = 1;
 	ctx->Const.MaxDualSourceDrawBuffers = 1;
 	ctx->Const.MaxLineWidth = 10.0f;
 	ctx->Const.MaxLineWidthAA = 10.0f;
@@ -267,20 +270,20 @@ initialize_context(struct gl_context *ctx, gl_api api)
 	{
 		gl_program_constants *pc = &ctx->Const.Program[sh];
 		gl_shader_compiler_options *options = &ctx->Const.ShaderCompilerOptions[tgsi_processor_to_shader_stage(sh)];
-		pc->MaxTextureImageUnits = 32;
+		pc->MaxTextureImageUnits = 8;
 		pc->MaxInstructions = pc->MaxNativeInstructions = 16384;
 		pc->MaxAluInstructions = pc->MaxNativeAluInstructions = 16384;
 		pc->MaxTexInstructions = pc->MaxNativeTexInstructions = 16384;
 		pc->MaxTexIndirections = pc->MaxNativeTexIndirections = 16384;
 		pc->MaxNativeAttribs = sh == PIPE_SHADER_VERTEX ? 16 : (sh == PIPE_SHADER_FRAGMENT ? (0x1f0 / 16) : (0x200 / 16));
-		/* MaxAttribs raised to 32 for vertex shaders so Mesa accepts GLES2
-		 * aliased-inactive-attribute shaders (dEQP bind_aliasing tests declare
-		 * 2×GL_MAX_VERTEX_ATTRIBS attributes with half inactive at shared
-		 * locations).  Hardware limit stays 16 via MaxNativeAttribs. */
+		/* MaxAttribs=32 for vertex shaders: allows GLES2 aliased-inactive
+		 * attribute shaders (2×GL_MAX_VERTEX_ATTRIBS).  Hardware limit stays
+		 * 16 via MaxNativeAttribs.  Do NOT raise beyond 32: NV50_IR will
+		 * generate shaders with >16 native inputs, crashing the GPU. */
 		pc->MaxAttribs = sh == PIPE_SHADER_VERTEX ? 32 : pc->MaxNativeAttribs;
 		pc->MaxTemps = pc->MaxNativeTemps = 128;
 		pc->MaxAddressRegs = pc->MaxNativeAddressRegs = sh == PIPE_SHADER_VERTEX ? 1 : 0;
-		pc->MaxUniformComponents = 65536/4;
+		pc->MaxUniformComponents = 256*4;
 		pc->MaxParameters = pc->MaxNativeParameters = pc->MaxUniformComponents / 4;
 		pc->MaxInputComponents = pc->MaxAttribs*4;
 		pc->MaxOutputComponents = 32*4;
@@ -314,10 +317,9 @@ initialize_context(struct gl_context *ctx, gl_api api)
 	ctx->Const.LowerCsDerivedVariables = GL_TRUE;
 	ctx->Const.PrimitiveRestartForPatches = GL_TRUE;
 
-	ctx->Const.MaxCombinedTextureImageUnits =
-		ctx->Const.Program[MESA_SHADER_VERTEX].MaxTextureImageUnits; // fincs-note: this is custom (only 1)
+	ctx->Const.MaxCombinedTextureImageUnits = 8;
 
-	ctx->Const.MaxVarying = ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxAttribs;
+	ctx->Const.MaxVarying = 15;
 	ctx->Const.MaxGeometryOutputVertices = 1024;
 	ctx->Const.MaxGeometryTotalOutputComponents = 1024;
 	ctx->Const.MaxGeometryShaderInvocations = 32;
@@ -475,15 +477,16 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 	/* GLES2 spec: shaders without #version are implicitly ES 1.00.
 	 * Mesa with API_OPENGL_CORE requires an explicit #version directive
 	 * to recognize ES keywords (attribute, varying, etc.), so prepend
-	 * "#version 100\n" when the source lacks a #version directive. */
+	 * "#version 100\n" when the source lacks a #version directive.
+	 * "#line 1" resets line numbering so __LINE__ matches the original source. */
 	{
 		const char *p = source;
 		while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
 		if (strncmp(p, "#version", 8) != 0) {
 			size_t len = strlen(source);
-			char *patched = ralloc_array(prg, char, len + 14);
-			memcpy(patched, "#version 100\n", 13);
-			memcpy(patched + 13, source, len + 1);
+			char *patched = ralloc_array(prg, char, len + 22);
+			memcpy(patched, "#version 100\n#line 1\n", 21);
+			memcpy(patched + 21, source, len + 1);
 			shader->Source = patched;
 		} else {
 			shader->Source = source;
@@ -686,6 +689,25 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 			}
 		}
 
+		/* Scan parameter list for gl_DepthRange state variable.
+		 * Mesa maps gl_DepthRange to STATE_DEPTH_RANGE as a vec4 in the
+		 * driver constbuf: [near, far, diff, unused]. Record the byte offset
+		 * so SwitchGLES can update these values at draw time. */
+		s_depth_range_offset = -1;
+		for (unsigned i = 0; i < pl->NumParameters; i++)
+		{
+			gl_program_parameter *p = &pl->Parameters[i];
+			if (p->Type == PROGRAM_STATE_VAR &&
+			    p->StateIndexes[0] == STATE_DEPTH_RANGE)
+			{
+				s_depth_range_offset = (int)(4 * pl->ParameterValueOffset[i]);
+				uint32_t end = (uint32_t)s_depth_range_offset + 16;
+				if (end > s_constbuf_size)
+					s_constbuf_size = end;
+				break;
+			}
+		}
+
 		/* Collect sampler metadata from UniformStorage.
 		 * Mesa reports sampler arrays as a single gl_uniform_storage entry
 		 * with name "s" and array_elements=N.  Expand into individual entries
@@ -855,4 +877,10 @@ const glsl_input_info_t* glsl_program_get_input_info(glsl_program prg, int index
 	if (index < 0 || index >= s_num_inputs)
 		return nullptr;
 	return &s_inputs[index];
+}
+
+int glsl_program_get_depth_range_offset(glsl_program prg)
+{
+	(void)prg;
+	return s_depth_range_offset;
 }

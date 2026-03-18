@@ -127,6 +127,11 @@ bool uam_is_constbuf_remapped(const uam_compiler *compiler);
 // The returned pointer is valid until the compiler is freed.
 const void *uam_get_constbuf_initial_data(const uam_compiler *compiler, uint32_t *size);
 
+// Gets the byte offset of gl_DepthRange in the driver constbuf.
+// Returns -1 if the shader doesn't use gl_DepthRange.
+// The depth range occupies a vec4 at this offset: [near, far, diff, unused].
+int uam_get_depth_range_offset(const uam_compiler *compiler);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus

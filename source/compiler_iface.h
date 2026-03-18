@@ -47,6 +47,9 @@ class DekoCompiler
 	glsl_input_info_t m_inputs[GLSL_INPUT_MAX];
 	int m_numInputs;
 
+	/* gl_DepthRange offset in driver constbuf (-1 = not used) */
+	int m_depthRangeOffset;
+
 	/* Attribute bindings (from glBindAttribLocation) */
 	glsl_attrib_binding_t m_attribBindings[GLSL_ATTRIB_BINDING_MAX];
 	int m_numAttribBindings;
@@ -92,6 +95,9 @@ public:
 	const glsl_input_info_t* GetInputInfo(int index) const {
 		return (index >= 0 && index < m_numInputs) ? &m_inputs[index] : nullptr;
 	}
+
+	/* gl_DepthRange offset (-1 if not used by shader) */
+	int GetDepthRangeOffset() const { return m_depthRangeOffset; }
 
 	/* Attribute binding (call before CompileGlsl) */
 	void SetAttribBinding(const char *name, int location);

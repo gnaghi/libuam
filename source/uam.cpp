@@ -158,3 +158,7 @@ const void *uam_get_constbuf_initial_data(const uam_compiler *compiler, uint32_t
         *size = c->GetConstbufDataSize();
     return c->GetConstbufData();
 }
+
+int uam_get_depth_range_offset(const uam_compiler *compiler) {
+    return reinterpret_cast<const DekoCompiler *>(compiler)->GetDepthRangeOffset();
+}

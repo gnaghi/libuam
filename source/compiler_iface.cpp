@@ -254,6 +254,7 @@ DekoCompiler::DekoCompiler(pipeline_stage stage, int optLevel) :
 	m_nvsh{}, m_dkph{}, m_uniforms{}, m_numUniforms{0}, m_constbufSize{0},
 	m_samplers{}, m_numSamplers{0},
 	m_inputs{}, m_numInputs{0},
+	m_depthRangeOffset{-1},
 	m_attribBindings{}, m_numAttribBindings{0}
 {
 	m_nvsh.version = 3;
@@ -391,6 +392,9 @@ bool DekoCompiler::CompileGlsl(const char* glsl)
 		if (src)
 			m_inputs[i] = *src;
 	}
+
+	/* Capture gl_DepthRange offset */
+	m_depthRangeOffset = glsl_program_get_depth_range_offset(m_glsl);
 
 	m_tgsi = glsl_program_get_tokens(m_glsl, m_tgsiNumTokens);
 	m_info.bin.source = m_tgsi;
