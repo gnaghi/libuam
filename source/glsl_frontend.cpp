@@ -270,7 +270,7 @@ initialize_context(struct gl_context *ctx, gl_api api)
 	{
 		gl_program_constants *pc = &ctx->Const.Program[sh];
 		gl_shader_compiler_options *options = &ctx->Const.ShaderCompilerOptions[tgsi_processor_to_shader_stage(sh)];
-		pc->MaxTextureImageUnits = 8;
+		pc->MaxTextureImageUnits = 16;
 		pc->MaxInstructions = pc->MaxNativeInstructions = 16384;
 		pc->MaxAluInstructions = pc->MaxNativeAluInstructions = 16384;
 		pc->MaxTexInstructions = pc->MaxNativeTexInstructions = 16384;
@@ -317,7 +317,7 @@ initialize_context(struct gl_context *ctx, gl_api api)
 	ctx->Const.LowerCsDerivedVariables = GL_TRUE;
 	ctx->Const.PrimitiveRestartForPatches = GL_TRUE;
 
-	ctx->Const.MaxCombinedTextureImageUnits = 8;
+	ctx->Const.MaxCombinedTextureImageUnits = 16;
 
 	ctx->Const.MaxVarying = 15;
 	ctx->Const.MaxGeometryOutputVertices = 1024;
