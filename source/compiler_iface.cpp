@@ -250,7 +250,7 @@ nvc0_spirv_assign_varying_slots(struct nv50_ir_prog_info *info)
 }
 
 DekoCompiler::DekoCompiler(pipeline_stage stage, int optLevel) :
-	m_stage{stage}, m_glsl{}, m_tgsi{}, m_tgsiNumTokens{}, m_info{}, m_code{}, m_codeSize{},
+	m_stage{stage}, m_glsl{}, m_tgsi{}, m_tgsiNumTokens{}, m_info{}, m_code{}, m_codeSize{}, m_data{}, m_dataSize{},
 	m_nvsh{}, m_dkph{}, m_uniforms{}, m_numUniforms{0}, m_constbufSize{0},
 	m_samplers{}, m_numSamplers{0},
 	m_inputs{}, m_numInputs{0},
@@ -338,6 +338,10 @@ DekoCompiler::~DekoCompiler()
 {
 	if (m_glsl)
 		glsl_program_free(m_glsl);
+
+	/* Free NV50_IR generated machine code (allocated by nv50_ir_generate_code via MALLOC) */
+	if (m_info.bin.code)
+		free(m_info.bin.code);
 
 	glsl_frontend_exit();
 }
