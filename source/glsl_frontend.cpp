@@ -533,7 +533,26 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 			    !var->data.explicit_binding) {
 				var->data.explicit_binding = true;
 				var->data.binding = next_sampler_binding;
-				next_sampler_binding++;
+				unsigned count = var->type->is_array()
+					? var->type->array_size() : 1;
+				next_sampler_binding += count;
+			} else if (type->base_type == GLSL_TYPE_STRUCT && !var->data.explicit_binding) {
+				/* Struct containing samplers: count sampler members and
+				 * advance binding counter so subsequent samplers get
+				 * correct sequential bindings. */
+				unsigned nsamp = 0;
+				for (unsigned f = 0; f < type->length; f++) {
+					if (type->fields.structure[f].type->is_sampler() ||
+					    type->fields.structure[f].type->contains_sampler())
+						nsamp++;
+				}
+				if (nsamp > 0) {
+					var->data.explicit_binding = true;
+					var->data.binding = next_sampler_binding;
+					unsigned count = var->type->is_array()
+						? var->type->array_size() * nsamp : nsamp;
+					next_sampler_binding += count;
+				}
 			}
 		}
 	}
