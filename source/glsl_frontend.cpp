@@ -481,7 +481,21 @@ glsl_program glsl_program_create(const char* source, pipeline_stage stage)
 	 * "#line 1" resets line numbering so __LINE__ matches the original source. */
 	{
 		const char *p = source;
-		while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+		/* Skip whitespace AND comments before #version (GLSL spec allows them) */
+		for (;;) {
+			while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+			if (p[0] == '/' && p[1] == '/') { /* line comment */
+				while (*p && *p != '\n') p++;
+				continue;
+			}
+			if (p[0] == '/' && p[1] == '*') { /* block comment */
+				p += 2;
+				while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+				if (*p) p += 2;
+				continue;
+			}
+			break;
+		}
 		if (strncmp(p, "#version", 8) != 0) {
 			size_t len = strlen(source);
 			char *patched = ralloc_array(prg, char, len + 22);
